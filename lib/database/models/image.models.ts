@@ -1,6 +1,4 @@
-import { model, models ,Schema } from "mongoose";
-
-import { ObjectId } from 'mongoose'; // Assuming you're using Mongoose for ObjectId type
+import { model, models, Schema, Document } from "mongoose";
 
 export interface IImage extends Document {
     title: string; // Required
@@ -9,7 +7,9 @@ export interface IImage extends Document {
     secureUrl: URL; // Required
     width?: number; // Optional
     height?: number; // Optional
-    config?: Record<string, any>; // Optional, can be an object with any structure
+    config?: {
+        [key: string]: unknown;
+    }; // Optional, can be an object with any structure
     transformationUrl?: string; // Optional
     aspectRatio?: string; // Optional
     color?: string; // Optional
