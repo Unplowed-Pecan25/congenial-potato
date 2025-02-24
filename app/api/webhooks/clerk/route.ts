@@ -6,13 +6,17 @@ import { NextResponse } from "next/server";
 import { Webhook } from "svix";
 
 import { createUser, deleteUser, updateUser } from "@/lib/actions/user.actions";
+import { connectToDatabase } from "@/lib/database/mongoose";
 
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
 
 export async function POST(req: Request) {
+  console.log("Webhook endpoint called");
+  
   const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
   if (!WEBHOOK_SECRET) {
+    console.error("Missing WEBHOOK_SECRET");
     return NextResponse.json(
       { error: "Missing WEBHOOK_SECRET environment variable" },
       { status: 500 }
@@ -25,8 +29,11 @@ export async function POST(req: Request) {
   const svix_timestamp = headersList.get("svix-timestamp");
   const svix_signature = headersList.get("svix-signature");
 
+  console.log("Webhook headers:", { svix_id, svix_timestamp, svix_signature });
+
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
+    console.error("Missing required Svix headers");
     return NextResponse.json(
       { error: "Missing required Svix headers" },
       { status: 400 }
@@ -36,8 +43,9 @@ export async function POST(req: Request) {
   let payload;
   try {
     payload = await req.json();
+    console.log("Webhook payload:", payload);
   } catch (err) {
-    console.error("Error parsing JSON payload:", err); // Log the error
+    console.error("Error parsing JSON payload:", err);
     return NextResponse.json(
       { error: "Invalid JSON payload" },
       { status: 400 }
@@ -70,10 +78,17 @@ export async function POST(req: Request) {
   const { id } = evt.data;
   const eventType = evt.type;
 
+  console.log(`Processing webhook event: ${eventType}`);
+
   try {
+    // Ensure database connection
+    await connectToDatabase();
+    console.log("Database connected successfully");
+
     // CREATE
     if (eventType === "user.created") {
       const { id, email_addresses, image_url, first_name, last_name, username } = evt.data;
+      console.log("Creating user with data:", { id, email: email_addresses[0].email_address, username, first_name, last_name });
 
       const user = {
         clerkId: id,
@@ -85,14 +100,20 @@ export async function POST(req: Request) {
       };
 
       const newUser = await createUser(user);
+      console.log("User created in database:", newUser);
 
       // Set public metadata
       if (newUser) {
-        await clerk.users.updateUser(id, {
-          publicMetadata: {
-            userId: newUser._id,
-          },
-        });
+        try {
+          await clerk.users.updateUser(id, {
+            publicMetadata: {
+              userId: newUser._id,
+            },
+          });
+          console.log("Updated Clerk user metadata");
+        } catch (error) {
+          console.error("Error updating Clerk metadata:", error);
+        }
       }
 
       return NextResponse.json({ message: "User created successfully", user: newUser });
@@ -101,6 +122,7 @@ export async function POST(req: Request) {
     // UPDATE
     if (eventType === "user.updated") {
       const { id, image_url, first_name, last_name, username } = evt.data;
+      console.log("Updating user with data:", { id, username, first_name, last_name });
 
       const user = {
         firstName: first_name || "",
@@ -110,6 +132,7 @@ export async function POST(req: Request) {
       };
 
       const updatedUser = await updateUser(id, user);
+      console.log("User updated in database:", updatedUser);
 
       return NextResponse.json({ message: "User updated successfully", user: updatedUser });
     }
@@ -117,8 +140,10 @@ export async function POST(req: Request) {
     // DELETE
     if (eventType === "user.deleted") {
       const { id } = evt.data;
+      console.log("Deleting user:", id);
 
       const deletedUser = await deleteUser(id!);
+      console.log("User deleted from database:", deletedUser);
 
       return NextResponse.json({ message: "User deleted successfully", user: deletedUser });
     }
